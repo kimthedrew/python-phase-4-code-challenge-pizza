@@ -4,6 +4,7 @@ from models import db, Restaurant, RestaurantPizza, Pizza
 from flask_migrate import Migrate
 from flask import Flask, request, jsonify
 from flask_restful import Api, Resource
+from sqlalchemy.exc import SQLAlchemyError
 # from flask_sqlalchemy import SQLAlchemy
 # from sqlalchemy.orm import validates
 import os
@@ -42,7 +43,7 @@ class RestaurantResource(Resource):
     def get(self, id):
         restaurant = Restaurant.query.get(id)
         if not restaurant:
-            return jsonify({"error": "Restaurant not found"}), 404
+            return {"errors": "Restaurant not found"}, 404
         return jsonify(restaurant.to_dict())
     
     def delete(self, id):
@@ -51,11 +52,13 @@ class RestaurantResource(Resource):
             return {"message": "Restaurant not found"}, 404
         db.session.delete(restaurant)
         db.session.commit()
-        return {"message": "Restaurant deleted"}, 200
+        return '', 204
     
 class PizzaList(Resource):
     def get(self):
         pizzas = Pizza.query.all()
+        if 'name' not in data or 'ingredients' not in data:
+            return {"errors": "Missing required fields"}, 400
         return jsonify([pizza.to_dict() for pizza in pizzas])
     
     def post(self):
@@ -68,12 +71,18 @@ class PizzaList(Resource):
 class RestaurantPizzaList(Resource):
     def post(self):
         data =  request.get_json()
+
+        if 'restaurant_id' not in data or 'pizza_id' not in data or 'price' not in data:
+            return {"errors": "Missing required fields"}, 400
         
         restaurant = Restaurant.query.get(data['restaurant_id'])
         pizza = Pizza.query.get(data['pizza_id'])
 
         if not restaurant or not pizza:
-            return jsonify({"error": "Invalid restaurant or pizza ID"}), 400
+            return {"errors": "Invalid restaurant or pizza ID"}, 400
+        
+        if not (1 <= data['price'] <= 30):
+            return {"errors": "Price must be between 1 and 30"}, 400
         
         try:
             restaurant_pizza = RestaurantPizza(
@@ -83,10 +92,12 @@ class RestaurantPizzaList(Resource):
             )
             db.session.add(restaurant_pizza)
             db.session.commit()
-        except ValueError as e:
-            return {"error": str(e)}, 400
+            return restaurant_pizza.to_dict(), 201
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            return {"errors": "Database error occurred"}, 400
         
-        return jsonify(restaurant_pizza.to_dict()), 201
+
     
 
     
@@ -95,14 +106,17 @@ api.add_resource(RestaurantResource, '/restaurants/<int:id>')
 api.add_resource(PizzaList, '/pizzas')
 api.add_resource(RestaurantPizzaList, '/restaurant_pizzas')
 
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({"error": "Resource not found"}), 404
+
 @app.errorhandler(Exception)
 def handle_exception(e):
     # response = {
     #     "error": "Internal Server Error",
     #     "message": str(e)
     # }
-    print(str(e))
-    return jsonify({"error": "Internal server error"}), 500
+    return jsonify({"error": "Internal Server Error"}), 500
 
 if __name__ == '__main__':
     app.run(port=5555, debug=True)
