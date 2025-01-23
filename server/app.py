@@ -1,29 +1,108 @@
 #!/usr/bin/env python3
+
 from models import db, Restaurant, RestaurantPizza, Pizza
 from flask_migrate import Migrate
-from flask import Flask, request, make_response
+from flask import Flask, request, jsonify
 from flask_restful import Api, Resource
+# from flask_sqlalchemy import SQLAlchemy
+# from sqlalchemy.orm import validates
 import os
+
+app = Flask(__name__)
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATABASE = os.environ.get("DB_URI", f"sqlite:///{os.path.join(BASE_DIR, 'app.db')}")
-
-app = Flask(__name__)
-app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.json.compact = False
 
-migrate = Migrate(app, db)
-
 db.init_app(app)
+migrate = Migrate(app, db)
 
 api = Api(app)
 
 
-@app.route("/")
+@app.route('/')
 def index():
-    return "<h1>Code challenge</h1>"
+    return '<h1>Code challenge</h1>'
 
+class RestaurantList(Resource):
+    def get(self):
+        restaurants = Restaurant.query.all()
+        return jsonify([restaurant.to_dict() for restaurant in restaurants])
+    
+    def post(self):
+        data = request.get_json()
+        new_restaurant = Restaurant(name=data['name'], address=data['address'])
+        db.session.add(new_restaurant)
+        db.session.commit()
+        return jsonify(new_restaurant.to_dict()), 201
+    
+class RestaurantResource(Resource):
+    def get(self, id):
+        restaurant = Restaurant.query.get(id)
+        if not restaurant:
+            return jsonify({"error": "Restaurant not found"}), 404
+        return jsonify(restaurant.to_dict())
+    
+    def delete(self, id):
+        restaurant = Restaurant.query.get(id)
+        if not restaurant:
+            return {"message": "Restaurant not found"}, 404
+        db.session.delete(restaurant)
+        db.session.commit()
+        return {"message": "Restaurant deleted"}, 200
+    
+class PizzaList(Resource):
+    def get(self):
+        pizzas = Pizza.query.all()
+        return jsonify([pizza.to_dict() for pizza in pizzas])
+    
+    def post(self):
+        data = request.get_json()
+        new_pizza = Pizza(name=data['name'], ingredients=data['ingredients'])
+        db.session.add(new_pizza)
+        db.session.commit()
+        return jsonify(new_pizza.to_dict()), 201
+    
+class RestaurantPizzaList(Resource):
+    def post(self):
+        data =  request.get_json()
+        
+        restaurant = Restaurant.query.get(data['restaurant_id'])
+        pizza = Pizza.query.get(data['pizza_id'])
 
-if __name__ == "__main__":
+        if not restaurant or not pizza:
+            return jsonify({"error": "Invalid restaurant or pizza ID"}), 400
+        
+        try:
+            restaurant_pizza = RestaurantPizza(
+                price=data['price'],
+                restaurant_id=data['restaurant_id'],
+                pizza_id=data['pizza_id']
+            )
+            db.session.add(restaurant_pizza)
+            db.session.commit()
+        except ValueError as e:
+            return {"error": str(e)}, 400
+        
+        return jsonify(restaurant_pizza.to_dict()), 201
+    
+
+    
+api.add_resource(RestaurantList, '/restaurants')
+api.add_resource(RestaurantResource, '/restaurants/<int:id>')
+api.add_resource(PizzaList, '/pizzas')
+api.add_resource(RestaurantPizzaList, '/restaurant_pizzas')
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # response = {
+    #     "error": "Internal Server Error",
+    #     "message": str(e)
+    # }
+    print(str(e))
+    return jsonify({"error": "Internal server error"}), 500
+
+if __name__ == '__main__':
     app.run(port=5555, debug=True)
