@@ -57,12 +57,14 @@ class RestaurantResource(Resource):
 class PizzaList(Resource):
     def get(self):
         pizzas = Pizza.query.all()
-        if 'name' not in data or 'ingredients' not in data:
-            return {"errors": "Missing required fields"}, 400
         return jsonify([pizza.to_dict() for pizza in pizzas])
     
     def post(self):
         data = request.get_json()
+
+        if 'name' not in data or 'ingredients' not in data:
+            return {"errors": ["Missing required fields: 'name' and 'ingredients'"]}, 400
+        
         new_pizza = Pizza(name=data['name'], ingredients=data['ingredients'])
         db.session.add(new_pizza)
         db.session.commit()
@@ -82,7 +84,7 @@ class RestaurantPizzaList(Resource):
             return {"errors": "Invalid restaurant or pizza ID"}, 400
         
         if not (1 <= data['price'] <= 30):
-            return {"errors": "Price must be between 1 and 30"}, 400
+            return {"errors": ["Price must be between 1 and 30"]}, 400
         
         try:
             restaurant_pizza = RestaurantPizza(
